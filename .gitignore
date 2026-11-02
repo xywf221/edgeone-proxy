@@ -1,0 +1,8 @@
+# EdgeOne CLI 本地状态（含部署令牌）
+.edgeone/
+.env
+
+# 临时文件与打包产物
+.tmp/
+*.zip
+node_modules/

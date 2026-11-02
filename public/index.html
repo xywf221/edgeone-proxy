@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeOne Proxy · GitHub / Docker 加速</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 20px 72px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0d1117; color: #e6edf3; line-height: 1.6;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h1 span { color: #58a6ff; }
+  .sub { color: #8b949e; margin: 0 0 36px; }
+  h2 { font-size: 17px; margin: 36px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+  .tip { color: #8b949e; font-size: 14px; margin: 6px 0 12px; }
+  .cmd { position: relative; background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin: 10px 0; }
+  .cmd pre { margin: 0; padding: 14px 96px 14px 16px; overflow-x: auto; font-size: 13.5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .cmd button {
+    position: absolute; top: 9px; right: 9px; padding: 4px 10px; font-size: 12px;
+    color: #c9d1d9; background: #21262d; border: 1px solid #30363d; border-radius: 6px; cursor: pointer;
+  }
+  .cmd button:hover { background: #30363d; }
+  .cmd button.done { color: #3fb950; border-color: #238636; }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: #79c0ff; }
+  .hosts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .hosts span { padding: 3px 9px; font-size: 13px; background: #161b22; border: 1px solid #30363d; border-radius: 999px; }
+  .warn { padding: 12px 16px; border-left: 3px solid #d29922; background: #1f1a10; border-radius: 0 8px 8px 0; font-size: 14px; }
+  footer { margin-top: 48px; color: #484f58; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>EdgeOne <span>Proxy</span></h1>
+  <p class="sub">基于腾讯云 EdgeOne 边缘函数的 GitHub / Docker 镜像代理。把下面命令里的 <code class="host">当前域名</code> 换成你的部署域名即可。</p>
+
+  <h2>GitHub</h2>
+  <p class="tip">克隆仓库、下载 Release、读取 raw / API 文件。</p>
+  <div class="cmd"><pre data-tpl>git clone https://HOST/gh/user/repo.git</pre><button>复制</button></div>
+  <div class="cmd"><pre data-tpl>curl -O https://HOST/gh/user/repo/releases/download/v1.0.0/app.zip</pre><button>复制</button></div>
+  <div class="cmd"><pre data-tpl>curl https://HOST/raw/user/repo/main/README.md</pre><button>复制</button></div>
+  <div class="cmd"><pre data-tpl>curl https://HOST/api/repos/user/repo</pre><button>复制</button></div>
+  <p class="tip">等价写法：<code>gh</code> = github.com，<code>raw</code> = raw.githubusercontent.com，<code>api</code> = api.github.com，<code>codeload</code>、<code>gist</code>、<code>gistraw</code> 同理；也可以直接写 <code>/github.com/user/repo</code>。</p>
+
+  <h2>Docker Hub</h2>
+  <p class="tip">把本域名配成镜像加速器，之后 <code>docker pull nginx</code> 自动走这里。编辑 <code>/etc/docker/daemon.json</code>：</p>
+  <div class="cmd"><pre data-tpl>{
+  "registry-mirrors": ["https://HOST"]
+}</pre><button>复制</button></div>
+  <div class="cmd"><pre>sudo systemctl restart docker</pre><button>复制</button></div>
+  <p class="tip">部分面板 / 环境不支持多镜像时，也可以直接拉取：</p>
+  <div class="cmd"><pre data-tpl>docker pull HOST/library/nginx:latest</pre><button>复制</button></div>
+
+  <h2>其他镜像仓库</h2>
+  <p class="tip">GHCR、GCR、Quay、registry.k8s.io 走路径前缀方式拉取（镜像名里多一层仓库别名）：</p>
+  <div class="cmd"><pre data-tpl>docker pull HOST/ghcr/owner/image:tag</pre><button>复制</button></div>
+  <div class="cmd"><pre data-tpl>docker pull HOST/gcr/google-containers/pause:3.9</pre><button>复制</button></div>
+  <div class="cmd"><pre data-tpl>docker pull HOST/k8s/pause:3.9</pre><button>复制</button></div>
+
+  <h2>支持的主机</h2>
+  <div class="hosts">
+    <span>github.com</span><span>api.github.com</span><span>raw.githubusercontent.com</span>
+    <span>codeload.github.com</span><span>objects.githubusercontent.com</span>
+    <span>gist.github.com</span><span>gist.githubusercontent.com</span>
+    <span>github.githubassets.com</span><span>media.githubusercontent.com</span>
+    <span>registry-1.docker.io</span><span>auth.docker.io</span>
+    <span>ghcr.io</span><span>gcr.io</span><span>quay.io</span><span>registry.k8s.io</span>
+  </div>
+
+  <h2>限制</h2>
+  <div class="warn">
+    EdgeOne 边缘函数的请求体上限是 1MB，所以只支持拉取。<code>docker push</code> 和较大的 <code>git push</code> 会失败；私有仓库的鉴权头会原样转发，但登录态 Cookie 不在本代理的用途范围内。
+  </div>
+
+  <footer>EdgeOne Functions · 单文件反代，无服务器、自动扩容</footer>
+</main>
+<script>
+  const host = location.host;
+  document.querySelectorAll('pre[data-tpl]').forEach(pre => {
+    pre.textContent = pre.textContent.replaceAll('HOST', host);
+  });
+  document.querySelectorAll('.cmd button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const text = btn.previousElementSibling.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '已复制';
+        btn.classList.add('done');
+        setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('done'); }, 1500);
+      } catch {
+        btn.textContent = '复制失败';
+        setTimeout(() => { btn.textContent = '复制'; }, 1500);
+      }
+    });
+  });
+</script>
+</body>
+</html>
