@@ -30,6 +30,12 @@
   .hosts { display: flex; flex-wrap: wrap; gap: 8px; }
   .hosts span { padding: 3px 9px; font-size: 13px; background: #161b22; border: 1px solid #30363d; border-radius: 999px; }
   .warn { padding: 12px 16px; border-left: 3px solid #d29922; background: #1f1a10; border-radius: 0 8px 8px 0; font-size: 14px; }
+  .conv input {
+    width: 100%; padding: 12px 14px; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    color: #e6edf3; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; outline: none;
+  }
+  .conv input:focus { border-color: #58a6ff; box-shadow: 0 0 0 3px rgba(88,166,255,.15); }
+  .conv .err { margin: 10px 0 0; font-size: 13px; color: #f85149; }
   footer { margin-top: 48px; color: #484f58; font-size: 13px; }
 </style>
 </head>
@@ -37,6 +43,14 @@
 <main>
   <h1>EdgeOne <span>Proxy</span></h1>
   <p class="sub">基于腾讯云 EdgeOne 边缘函数的 GitHub / Docker 镜像代理。把下面命令里的 <code class="host">当前域名</code> 换成你的部署域名即可。</p>
+
+  <h2>GitHub 链接转换</h2>
+  <p class="tip">粘贴任意 GitHub 链接（仓库、Release 文件、raw 文件、API、gist，或 <code>git@github.com:</code> 形式），自动生成代理地址。</p>
+  <div class="conv">
+    <input id="gh-input" type="text" spellcheck="false" placeholder="https://github.com/user/repo/releases/download/v1.0.0/app.zip">
+    <div class="cmd" id="gh-result" hidden><pre id="gh-out"></pre><button>复制</button></div>
+    <p class="err" id="gh-err" hidden></p>
+  </div>
 
   <h2>GitHub</h2>
   <p class="tip">克隆仓库、下载 Release、读取 raw / API 文件。</p>
@@ -83,19 +97,69 @@
   document.querySelectorAll('pre[data-tpl]').forEach(pre => {
     pre.textContent = pre.textContent.replaceAll('HOST', host);
   });
-  document.querySelectorAll('.cmd button').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const text = btn.previousElementSibling.textContent;
-      try {
-        await navigator.clipboard.writeText(text);
-        btn.textContent = '已复制';
-        btn.classList.add('done');
-        setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('done'); }, 1500);
-      } catch {
-        btn.textContent = '复制失败';
-        setTimeout(() => { btn.textContent = '复制'; }, 1500);
-      }
-    });
+  const ALIAS = {
+    'github.com': 'gh',
+    'www.github.com': 'gh',
+    'raw.githubusercontent.com': 'raw',
+    'api.github.com': 'api',
+    'codeload.github.com': 'codeload',
+    'gist.github.com': 'gist',
+    'gist.githubusercontent.com': 'gistraw',
+    'github.githubassets.com': 'assets',
+  };
+  const DIRECT = new Set([
+    'objects.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+    'uploads.github.com',
+    'media.githubusercontent.com',
+  ]);
+
+  function convert(value) {
+    let s = value.trim();
+    if (!s) return null;
+    const ssh = s.match(/^git@([^:]+):(.+)$/);
+    if (ssh) s = `https://${ssh[1]}/${ssh[2]}`;
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+
+    let url;
+    try { url = new URL(s); } catch { return { error: '不是合法的 URL' }; }
+
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname === '/' ? '' : url.pathname;
+    if (ALIAS[host]) return { url: `${location.origin}/${ALIAS[host]}${path}${url.search}` };
+    if (DIRECT.has(host)) return { url: `${location.origin}/${host}${path}${url.search}` };
+    return { error: `不支持的域名：${host}` };
+  }
+
+  const input = document.getElementById('gh-input');
+  const result = document.getElementById('gh-result');
+  const output = document.getElementById('gh-out');
+  const error = document.getElementById('gh-err');
+
+  function render() {
+    const r = convert(input.value);
+    const hasUrl = Boolean(r && r.url);
+    result.hidden = !hasUrl;
+    error.hidden = !(r && r.error);
+    if (hasUrl) output.textContent = r.url;
+    if (r && r.error) error.textContent = r.error;
+  }
+
+  input.addEventListener('input', render);
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('.cmd button');
+    if (!btn) return;
+    const text = btn.previousElementSibling.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '已复制';
+      btn.classList.add('done');
+      setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('done'); }, 1500);
+    } catch {
+      btn.textContent = '复制失败';
+      setTimeout(() => { btn.textContent = '复制'; }, 1500);
+    }
   });
 </script>
 </body>
