@@ -47,7 +47,7 @@ const REALM_ROUTES = {
 const SKIP_REQUEST_HEADERS = new Set([
   'host', 'connection', 'keep-alive', 'proxy-connection', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade',
-  'accept-encoding', 'content-length', 'origin', 'referer',
+  'accept-encoding', 'content-length',
   'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip',
   'x-client-ip', 'cf-connecting-ip', 'cf-ray', 'cf-visitor', 'cf-ipcountry',
 ]);
@@ -64,7 +64,36 @@ const CORS_EXPOSE = {
   'access-control-expose-headers': '*',
 };
 
-function resolveRoute(pathname) {
+// /any/ 只允许公网 http(s)，挡掉回环、内网、链路本地和云元数据地址
+function isPrivateHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost') || host === 'metadata.google.internal') {
+    return true;
+  }
+
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+
+  if (host.includes(':')) {
+    if (host === '::' || host === '::1') return true;
+    if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return true;
+    const mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isPrivateHost(mapped[1]);
+  }
+
+  return false;
+}
+
+function resolveRoute(pathname, search = '') {
   if (/^\/https?:\/\//i.test(pathname)) {
     let target;
     try {
@@ -80,6 +109,24 @@ function resolveRoute(pathname) {
   const first = (firstEnd === -1 ? pathname.slice(1) : pathname.slice(1, firstEnd)).toLowerCase();
   if (!first) return null;
   const rest = firstEnd === -1 ? '/' : pathname.slice(firstEnd);
+
+  // /any/<完整URL>：隐藏的开放代理，header / body 原样透传
+  if (first === 'any') {
+    let target;
+    try {
+      target = new URL(rest.slice(1) + search);
+    } catch {
+      return null;
+    }
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') return null;
+    if (isPrivateHost(target.hostname)) return null;
+    return {
+      host: target.hostname,
+      path: target.pathname || '/',
+      search: target.search,
+      protocol: target.protocol,
+    };
+  }
 
   if (first === 'token') {
     return { host: 'auth.docker.io', path: '/token' };
@@ -149,11 +196,11 @@ export async function onRequest(context) {
     });
   }
 
-  const route = resolveRoute(url.pathname);
+  const route = resolveRoute(url.pathname, url.search);
   if (!route) return usagePage(url);
 
-  const target = new URL(`https://${route.host}${route.path}`);
-  target.search = url.search;
+  const target = new URL(`${route.protocol || 'https:'}//${route.host}${route.path}`);
+  target.search = route.search ?? url.search;
 
   const headers = new Headers();
   for (const [key, value] of request.headers) {
@@ -162,20 +209,20 @@ export async function onRequest(context) {
   // 让上游返回未压缩内容，否则响应体可能与声明的编码不一致
   headers.set('accept-encoding', 'identity');
 
-  let body;
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    const buffer = await request.arrayBuffer();
-    if (buffer.byteLength) body = buffer;
+  const init = {
+    method: request.method,
+    headers,
+    redirect: 'follow',
+  };
+  // 请求体流式直传，避免整包读进内存后再转发
+  if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+    init.body = request.body;
+    init.duplex = 'half';
   }
 
   let upstream;
   try {
-    upstream = await fetch(target, {
-      method: request.method,
-      headers,
-      body,
-      redirect: 'follow',
-    });
+    upstream = await fetch(target, init);
   } catch (error) {
     return new Response(`上游请求失败：${target.href}\n${error.message}`, {
       status: 502,

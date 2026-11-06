@@ -95,7 +95,7 @@ EdgeOne 国际站的默认域名 `*.edgeone.dev` 对**大陆 IP** 只发放 3 �
 
 ## 限制
 
-- **只能拉取，不能推送**：边缘函数请求体上限 1MB，`docker push` 和较大的 `git push` 会失败。
+- **只为拉取设计**：请求体流式直传，但平台仍有大小限制（旧的缓冲实现实测 5.0MB 通过、5.02MB 起返回 545，流式后未重新压测），`docker push` 和较大的 `git push` 不保证可用。
 - CPU 200ms（不含 I/O），大文件靠流式转发。
 - 代码包上限 5MB。
 - **不支持 WebSocket**：Makers 边缘函数是 request/response 模型，没有 `WebSocketPair` / upgrade 处理。需要 WS 反代请用 Cloudflare Workers，或用 EdgeOne「站点 + 源站」并打开站点的 WebSocket 开关。单向流式（SSE、大文件）不受影响。

@@ -36,16 +36,18 @@ edgeone login -s global
 1. `OPTIONS` 直接回 CORS 预检。
 2. `resolveRoute(pathname)` 解析上游，返回 `{ host, path }`：
    - `/https://host/path` 完整 URL 形式，仅限白名单主机；
+   - 首段 `any` → `/any/<完整URL>` 隐藏开放代理（不对外文档）。解析后只允许 http/https 公网地址，`isPrivateHost` 拦截回环、内网、链路本地和云元数据；代理 URL 的查询串会拼回目标 URL；
    - 首段 `token` → `auth.docker.io/token`；
    - 首段 `v2` → Docker Hub（`registry-1.docker.io`）。若 `/v2/` 后的下一段是 `ghcr|gcr|quay|k8s`，改写为其他仓库并把 `/v2` 前缀补回去——Docker 客户端固定以 `/v2/` 开头，而 `registry-mirrors` 只能配 host，这是两者共存的唯一办法；
    - 其余首段查 `ALIASES`（gh/raw/api/...）或直接命中 `HOST_PREFIXED` 域名。
-3. 复制请求头 → 强制 `accept-encoding: identity`，非 GET/HEAD 用 `arrayBuffer()` 缓冲 body。
+3. 复制请求头（`Origin` / `Referer` 也透传）→ 强制 `accept-encoding: identity`；非 GET/HEAD 时把 `request.body` 流式直传（`duplex: 'half'`），不整包缓冲。
 4. `fetch(target, { redirect: 'follow' })`，GitHub release / codeload 的 302 在函数内跟完。
 5. 响应头删除 hop-by-hop、`content-encoding`、`content-length`、CSP，加 CORS，流式返回 `upstream.body`。
 
 修改时的关键不变量：
 
-- **`HOST_PREFIXED` 是安全边界**（防止变成开放代理）。新增任何上游，必须同时登记到 `HOST_PREFIXED` 和（可选）`ALIASES`，否则一律 404。
+- **除 `/any/` 外，`HOST_PREFIXED` 是安全边界**（防止变成开放代理）。新增任何上游，必须同时登记到 `HOST_PREFIXED` 和（可选）`ALIASES`，否则一律 404。
+- `/any/` 是为了让用户个人临时访问任意公网 URL，刻意绕过白名单，不写进首页/README。它只校验入口 URL 的协议和主机，`redirect: 'follow'` 跟随跳转时不会复检目标（已知残余 SSRF 风险）；不要在这个路由上做鉴权以外的功能扩展。
 - **新增 Docker 仓库必须同时配 `TOKEN_PATHS` 和 `REALM_ROUTES`**：前者处理非 `/token` 的取票路径（gcr 是 `/v2/token`、quay 是 `/v2/auth`），后者把 401 的 `www-authenticate` realm 改写成代理自己的 token 入口，否则 docker 客户端会拿着代理地址去请求错误的鉴权地址。
 - 不要去掉 `accept-encoding: identity` + 删除 `content-encoding` 的组合：EdgeOne 运行时可能自动解压响应体但保留头，两边不一致会导致文本页面乱码。
 - 不支持 WebSocket：Makers 边缘函数是 request/response 模型，运行时没有 `WebSocketPair`。
@@ -59,7 +61,7 @@ edgeone login -s global
 
 ## 平台约束（决定了上面的设计）
 
-- 请求体上限 **1MB** → 只能 pull，`docker push` / 大 `git push` 不支持。
+- 请求体大小受限：旧的缓冲实现实测 5.0MB 通过、5.02MB 起返回 545（`Error return from script`）；已改为流式直传，上限未重新压测。`docker push` / 大 `git push` 不保证可用。
 - CPU 200ms（不含 I/O）、代码包 5MB。
 - 国际站 + **overseas 加速区**：中国区节点出网到 `registry-1.docker.io` 会 504，必须用海外区。
 - `*.edgeone.dev` 默认域名对**大陆 IP** 只发放 3 小时有效的预览链接，过期 401；绑定自定义域名后正常。域名绑定只能在控制台操作，CLI/API 没有开放接口。

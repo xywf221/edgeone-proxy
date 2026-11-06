@@ -87,7 +87,7 @@
 
   <h2>限制</h2>
   <div class="warn">
-    EdgeOne 边缘函数的请求体上限是 1MB，所以只支持拉取。<code>docker push</code> 和较大的 <code>git push</code> 会失败；私有仓库的鉴权头会原样转发，但登录态 Cookie 不在本代理的用途范围内。
+    请求体会流式直传，但平台仍有大小限制（实测约 5MB 起返回 545），所以以拉取为主。<code>docker push</code> 和较大的 <code>git push</code> 不保证可用；私有仓库的鉴权头会原样转发，但登录态 Cookie 不在本代理的用途范围内。
   </div>
 
   <footer>EdgeOne Functions · 单文件反代，无服务器、自动扩容</footer>
